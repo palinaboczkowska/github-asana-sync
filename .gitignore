@@ -1,0 +1,17 @@
+## .NET
+bin/
+obj/
+*.user
+
+## Azure Functions
+local.settings.json
+bin
+obj
+
+## OS
+.DS_Store
+
+## IDE
+.vs/
+.vscode/
+*.swp

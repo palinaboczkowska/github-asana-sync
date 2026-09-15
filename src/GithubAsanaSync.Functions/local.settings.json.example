@@ -1,0 +1,13 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "ServiceBusConnection": "<Service Bus namespace connection string>",
+    "TableStorageConnection": "UseDevelopmentStorage=true",
+    "GitHubWebhookSecret": "<shared secret configured on the GitHub webhook>",
+    "AsanaAccessToken": "<Asana personal access token>",
+    "AsanaProjectGid": "<Asana project GID new tasks are created in>",
+    "AsanaBaseUrl": "https://app.asana.com/api/1.0"
+  }
+}

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GithubAsanaSync.Functions/GithubAsanaSync.Functions.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GithubAsanaSync.Tests/GithubAsanaSync.Tests.csproj" />
+  </Folder>
+</Solution>
