@@ -1,11 +1,11 @@
 # github-asana-sync
 
-**Status: v1 scaffolded and passing locally — not deployed to Azure yet.**
+**Status: v1 pushed, CI green — not deployed to Azure yet.**
 GitHub → Asana one-way sync (issues only): webhook receiver, queue processor,
 Table Storage id-mapping, Asana client, and the Bicep template all exist and
-build. `dotnet test` passes (11/11). Nothing has been deployed — the Bicep
-template is hand-reviewed only, not machine-validated, see "Before deploying"
-below.
+build. `dotnet test` passes (11/11) both locally and in GitHub Actions.
+Nothing has been deployed to Azure yet — the Bicep template is hand-reviewed
+only, not machine-validated, see "Before deploying" below.
 
 Serverless, event-driven sync between GitHub Issues and Asana tasks, built to
 show real Azure PaaS services instead of a self-hosted webhook service.
