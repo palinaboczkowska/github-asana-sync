@@ -20,13 +20,13 @@ public sealed class TableIdMappingStore : IIdMappingStore
         _tableClient.CreateIfNotExists();
     }
 
-    public async Task<string?> FindAsanaTaskGidAsync(string repository, int issueNumber, CancellationToken cancellationToken)
+    public async Task<string?> FindAsanaTaskGidAsync(string repository, GitHubSourceKind kind, int number, CancellationToken cancellationToken)
     {
         try
         {
             var response = await _tableClient.GetEntityAsync<IssueMapping>(
                 repository,
-                IssueMapping.BuildRowKey(issueNumber),
+                IssueMapping.BuildRowKey(kind, number),
                 cancellationToken: cancellationToken);
 
             return response.Value.AsanaTaskGid;
@@ -37,12 +37,12 @@ public sealed class TableIdMappingStore : IIdMappingStore
         }
     }
 
-    public async Task SaveMappingAsync(string repository, int issueNumber, string asanaTaskGid, CancellationToken cancellationToken)
+    public async Task SaveMappingAsync(string repository, GitHubSourceKind kind, int number, string asanaTaskGid, CancellationToken cancellationToken)
     {
         var entity = new IssueMapping
         {
             PartitionKey = repository,
-            RowKey = IssueMapping.BuildRowKey(issueNumber),
+            RowKey = IssueMapping.BuildRowKey(kind, number),
             AsanaTaskGid = asanaTaskGid,
         };
 

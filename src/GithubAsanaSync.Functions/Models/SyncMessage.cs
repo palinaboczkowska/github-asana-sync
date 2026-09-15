@@ -8,10 +8,18 @@ public enum GitHubIssueAction
     Reopened,
 }
 
+public enum GitHubSourceKind
+{
+    Issue,
+    PullRequest,
+}
+
 public sealed record SyncMessage(
     string Repository,
-    int IssueNumber,
+    GitHubSourceKind SourceKind,
+    int Number,
     string Title,
     string Body,
     GitHubIssueAction Action,
-    string HtmlUrl);
+    string HtmlUrl,
+    bool Merged = false);

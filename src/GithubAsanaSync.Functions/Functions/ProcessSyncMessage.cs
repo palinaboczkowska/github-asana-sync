@@ -23,21 +23,32 @@ public sealed class ProcessSyncMessage(
         var message = JsonSerializer.Deserialize<SyncMessage>(messageBody)
             ?? throw new InvalidOperationException("Could not parse the queued sync message.");
 
-        var taskGid = await idMappingStore.FindAsanaTaskGidAsync(message.Repository, message.IssueNumber, cancellationToken);
+        var taskGid = await idMappingStore.FindAsanaTaskGidAsync(message.Repository, message.SourceKind, message.Number, cancellationToken);
 
         if (taskGid is null)
         {
+            var tag = message.SourceKind == GitHubSourceKind.PullRequest ? "PR" : "Issue";
+            var title = $"[{tag}] {message.Title}";
             var notes = $"{message.Body}\n\n{message.HtmlUrl}";
-            taskGid = await asanaClient.CreateTaskAsync(message.Title, notes, cancellationToken);
-            await idMappingStore.SaveMappingAsync(message.Repository, message.IssueNumber, taskGid, cancellationToken);
+
+            taskGid = await asanaClient.CreateTaskAsync(title, notes, cancellationToken);
+            await idMappingStore.SaveMappingAsync(message.Repository, message.SourceKind, message.Number, taskGid, cancellationToken);
 
             logger.LogInformation(
-                "Created Asana task {TaskGid} for {Repository}#{IssueNumber}.",
-                taskGid, message.Repository, message.IssueNumber);
+                "Created Asana task {TaskGid} for {Repository} {SourceKind} #{Number}.",
+                taskGid, message.Repository, message.SourceKind, message.Number);
         }
 
         switch (message.Action)
         {
+            case GitHubIssueAction.Closed when message.SourceKind == GitHubSourceKind.PullRequest:
+                await asanaClient.AddCommentAsync(
+                    taskGid,
+                    message.Merged ? $"Merged on GitHub: {message.HtmlUrl}" : $"Closed without merging: {message.HtmlUrl}",
+                    cancellationToken);
+                await asanaClient.UpdateTaskAsync(taskGid, completed: true, cancellationToken);
+                break;
+
             case GitHubIssueAction.Closed:
                 await asanaClient.UpdateTaskAsync(taskGid, completed: true, cancellationToken);
                 break;
@@ -47,7 +58,7 @@ public sealed class ProcessSyncMessage(
                 break;
 
             case GitHubIssueAction.Edited:
-                await asanaClient.AddCommentAsync(taskGid, $"Issue edited on GitHub: {message.HtmlUrl}", cancellationToken);
+                await asanaClient.AddCommentAsync(taskGid, $"Edited on GitHub: {message.HtmlUrl}", cancellationToken);
                 break;
 
             case GitHubIssueAction.Opened:

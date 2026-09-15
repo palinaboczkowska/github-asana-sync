@@ -1,11 +1,12 @@
 # github-asana-sync
 
 **Status: v1 pushed, CI green — not deployed to Azure yet.**
-GitHub → Asana one-way sync (issues only): webhook receiver, queue processor,
-Table Storage id-mapping, Asana client, and the Bicep template all exist and
-build. `dotnet test` passes (11/11) both locally and in GitHub Actions.
-Nothing has been deployed to Azure yet — the Bicep template is hand-reviewed
-only, not machine-validated, see "Before deploying" below.
+GitHub → Asana one-way sync, covering both issues and pull requests: webhook
+receiver, queue processor, Table Storage id-mapping, Asana client, and the
+Bicep template all exist and build. `dotnet test` passes (14/14) both
+locally and in GitHub Actions. Nothing has been deployed to Azure yet — the
+Bicep template is hand-reviewed only, not machine-validated, see "Before
+deploying" below.
 
 Serverless, event-driven sync between GitHub Issues and Asana tasks, built to
 show real Azure PaaS services instead of a self-hosted webhook service.
@@ -57,22 +58,29 @@ Asana → GitHub direction is future work (see "Still open" below).
 
 - `src/GithubAsanaSync.Functions` — .NET isolated worker Functions app.
   - `ReceiveGitHubWebhook` — validates the `X-Hub-Signature-256` HMAC,
-    parses `opened`/`edited`/`closed`/`reopened` issue events, queues a
+    branches on the `X-GitHub-Event` header to parse either an `issues` or a
+    `pull_request` payload (`opened`/`edited`/`closed`/`reopened`), queues a
     `SyncMessage`. Always answers GitHub 200 by design (see comment in the
-    file) — a bad signature and an ignored action look identical from the
-    outside.
+    file) — a bad signature and an ignored action/event look identical from
+    the outside.
   - `ProcessSyncMessage` — Service Bus queue trigger. Creates the Asana task
-    on first sight of an issue (self-healing: an issue closed before ever
+    on first sight of an issue or PR (self-healing: one closed before ever
     being seen still gets created, then marked complete), otherwise updates
-    completion state or adds a comment on edit.
-  - `TableIdMappingStore` — one Table Storage row per synced issue
-    (PartitionKey = repo, RowKey = issue number).
+    completion state or adds a comment on edit. A merged PR gets a "Merged"
+    comment before being completed; a PR closed without merging gets a
+    "Closed without merging" comment instead — same completion either way,
+    different note on why.
+  - `TableIdMappingStore` — one Table Storage row per synced item
+    (PartitionKey = repo, RowKey = `{Issue|PullRequest}-{number}` — issues
+    and PRs share GitHub's numbering sequence, so the kind is part of the
+    key to avoid issue #42 and PR #42 colliding).
   - `AsanaClient` — thin wrapper over Asana's REST API v1.0.
-- `tests/GithubAsanaSync.Tests` — xUnit + Moq. Signature validation
+- `tests/GithubAsanaSync.Tests` — xUnit + Moq, 14 tests. Signature validation
   (valid/tampered/wrong-secret/malformed-header) and the sync branching
-  logic (new issue, existing issue, self-healing, edit) are covered against
-  mocked `IAsanaClient`/`IIdMappingStore` — no live Azure or Asana calls in
-  CI. `dotnet test` from the repo root runs everything.
+  logic (new issue, existing issue, self-healing, edit, PR merged, PR closed
+  unmerged) are covered against mocked `IAsanaClient`/`IIdMappingStore` — no
+  live Azure or Asana calls in CI. `dotnet test` from the repo root runs
+  everything.
 - `infra/main.bicep` — Consumption-plan Function App, Service Bus (Basic,
   one queue), Storage account (Functions storage + the mapping table),
   Key Vault (both secrets, resolved into the Function App via its
@@ -105,7 +113,6 @@ Asana → GitHub direction is future work (see "Still open" below).
 ## Still open
 
 - [ ] Asana → GitHub direction (currently one-way, GitHub → Asana only).
-- [ ] Decide whether to fold in pull requests, not just issues.
 - [ ] Actually deploy `main.bicep` and register the GitHub + Asana webhooks
       against the live endpoint.
 
