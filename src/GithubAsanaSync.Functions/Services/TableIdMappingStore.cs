@@ -25,7 +25,7 @@ public sealed class TableIdMappingStore : IIdMappingStore
         try
         {
             var response = await _tableClient.GetEntityAsync<IssueMapping>(
-                repository,
+                IssueMapping.BuildPartitionKey(repository),
                 IssueMapping.BuildRowKey(kind, number),
                 cancellationToken: cancellationToken);
 
@@ -41,7 +41,7 @@ public sealed class TableIdMappingStore : IIdMappingStore
     {
         var entity = new IssueMapping
         {
-            PartitionKey = repository,
+            PartitionKey = IssueMapping.BuildPartitionKey(repository),
             RowKey = IssueMapping.BuildRowKey(kind, number),
             AsanaTaskGid = asanaTaskGid,
         };

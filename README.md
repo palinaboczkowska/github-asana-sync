@@ -3,7 +3,7 @@
 **Status: deployed to Azure and verified end to end (2026-10-16).**
 GitHub → Asana one-way sync, covering both issues and pull requests: webhook
 receiver, queue processor, Table Storage id-mapping, Asana client and the
-Bicep template. `dotnet test` passes (14/14) locally and in GitHub Actions.
+Bicep template. `dotnet test` passes (19/19) locally and in GitHub Actions.
 The infrastructure now runs in a real subscription: a signed webhook was
 accepted and queued, an unsigned and a wrongly signed one were rejected and
 logged, and the queue processor picked the message up and retried it the way
@@ -14,12 +14,21 @@ it is meant to.
 Running the template for the first time found one bug that no amount of
 reading would have caught: `AzureWebJobsStorage` was set to the storage
 account's blob endpoint instead of a connection string, which would have
-stopped the Functions host from starting. Two other things only showed up
+stopped the Functions host from starting. Three more only showed up
 against live Azure:
 
 - Owning the subscription does not grant data-plane access to Key Vault when
   the vault uses RBAC. The deploying user needs `Key Vault Secrets Officer`
   on the vault, separately from any management-plane role.
+- Table Storage rejects `/` in a partition key, and a GitHub repository is
+  always `owner/name`. Every lookup came back as `400 Error in query syntax`.
+  The fakes the tests run against accept any string, so this could only
+  surface against the real service; `IssueMapping.BuildPartitionKey` now
+  replaces the characters Table Storage refuses, with tests covering it.
+- App Service caches a Key Vault reference, and restarting does not re-read
+  it. Updating a secret in the vault looked like it had no effect. The
+  references are now versionless, so rotating a secret takes effect without a
+  redeployment, and both secrets are only written when a value is passed in.
 - The Linux Consumption plan cannot fetch its deployment package with the
   app's managed identity. The template now has Azure mint a read-only service
   SAS during deployment (`listServiceSas`), so the token never passes through
@@ -121,8 +130,8 @@ Build `app.zip` with `dotnet publish -c Release -o out` and zip the contents
 of `out`. The deploying user needs `Key Vault Secrets Officer` on the vault
 before the template writes its two secrets.
 
-Note that re-running the deployment overwrites both Key Vault secrets with
-whatever is passed in, so pass the real values rather than placeholders.
+Both secrets are written only when a value is passed in, so re-running the
+deployment without them leaves what is already in the vault alone.
 
 Functions runtime is pinned to `.NET 8` in the Bicep template
 (`linuxFxVersion: 'DOTNET-ISOLATED|8.0'`) — deliberate, not an oversight: the

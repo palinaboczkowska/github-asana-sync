@@ -104,13 +104,15 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
-resource githubWebhookSecretResource 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+// Both secrets are written only when a value is passed in, so re-running the
+// deployment without them leaves whatever is already in the vault alone.
+resource githubWebhookSecretResource 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(githubWebhookSecret)) {
   parent: keyVault
   name: 'GitHubWebhookSecret'
   properties: { value: githubWebhookSecret }
 }
 
-resource asanaAccessTokenResource 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+resource asanaAccessTokenResource 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(asanaAccessToken)) {
   parent: keyVault
   name: 'AsanaAccessToken'
   properties: { value: asanaAccessToken }
@@ -147,10 +149,11 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'AsanaProjectGid', value: asanaProjectGid }
         { name: 'AsanaBaseUrl', value: 'https://app.asana.com/api/1.0' }
         // Resolved from Key Vault at runtime via the Function App's own
-        // managed identity — the raw secret values never pass through
-        // this template's app settings.
-        { name: 'GitHubWebhookSecret', value: '@Microsoft.KeyVault(SecretUri=${githubWebhookSecretResource.properties.secretUri})' }
-        { name: 'AsanaAccessToken', value: '@Microsoft.KeyVault(SecretUri=${asanaAccessTokenResource.properties.secretUri})' }
+        // managed identity — the raw secret values never pass through this
+        // template's app settings. The URIs carry no version, so rotating a
+        // secret in the vault takes effect without a redeployment.
+        { name: 'GitHubWebhookSecret', value: '@Microsoft.KeyVault(SecretUri=${keyVault.properties.vaultUri}secrets/GitHubWebhookSecret)' }
+        { name: 'AsanaAccessToken', value: '@Microsoft.KeyVault(SecretUri=${keyVault.properties.vaultUri}secrets/AsanaAccessToken)' }
       ]
     }
   }

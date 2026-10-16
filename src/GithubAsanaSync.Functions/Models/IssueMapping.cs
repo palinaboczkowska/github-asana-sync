@@ -17,4 +17,21 @@ public sealed class IssueMapping : ITableEntity
     public ETag ETag { get; set; }
 
     public static string BuildRowKey(GitHubSourceKind kind, int number) => $"{kind}-{number}";
+
+    // Azure Table keys cannot contain '/', '\\', '#' or '?', and a GitHub
+    // repository is always "owner/name". Storing the raw name makes every
+    // request fail with "Error in query syntax", which only shows up against
+    // real Table Storage — a fake store happily accepts any string.
+    public static string BuildPartitionKey(string repository)
+    {
+        var key = new char[repository.Length];
+
+        for (var i = 0; i < repository.Length; i++)
+        {
+            var c = repository[i];
+            key[i] = c is '/' or '\\' or '#' or '?' || char.IsControl(c) ? '_' : c;
+        }
+
+        return new string(key);
+    }
 }
