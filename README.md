@@ -1,12 +1,29 @@
 # github-asana-sync
 
-**Status: v1 pushed, CI green — not deployed to Azure yet.**
+**Status: deployed to Azure and verified end to end (2026-10-16).**
 GitHub → Asana one-way sync, covering both issues and pull requests: webhook
-receiver, queue processor, Table Storage id-mapping, Asana client, and the
-Bicep template all exist and build. `dotnet test` passes (14/14) both
-locally and in GitHub Actions. Nothing has been deployed to Azure yet — the
-Bicep template is hand-reviewed only, not machine-validated, see "Before
-deploying" below.
+receiver, queue processor, Table Storage id-mapping, Asana client and the
+Bicep template. `dotnet test` passes (14/14) locally and in GitHub Actions.
+The infrastructure now runs in a real subscription: a signed webhook was
+accepted and queued, an unsigned and a wrongly signed one were rejected and
+logged, and the queue processor picked the message up and retried it the way
+it is meant to.
+
+### What the first real deployment changed
+
+Running the template for the first time found one bug that no amount of
+reading would have caught: `AzureWebJobsStorage` was set to the storage
+account's blob endpoint instead of a connection string, which would have
+stopped the Functions host from starting. Two other things only showed up
+against live Azure:
+
+- Owning the subscription does not grant data-plane access to Key Vault when
+  the vault uses RBAC. The deploying user needs `Key Vault Secrets Officer`
+  on the vault, separately from any management-plane role.
+- The Linux Consumption plan cannot fetch its deployment package with the
+  app's managed identity. The template now has Azure mint a read-only service
+  SAS during deployment (`listServiceSas`), so the token never passes through
+  a parameter or a command line.
 
 Serverless, event-driven sync between GitHub Issues and Asana tasks, built to
 show real Azure PaaS services instead of a self-hosted webhook service.
@@ -89,26 +106,28 @@ Asana → GitHub direction is future work (see "Still open" below).
 - `.github/workflows/ci.yml` — restore/build/test on push and PR, matching
   the other .NET portfolio project's CI shape.
 
-## Before deploying
+## Deploying
 
-- **The Bicep template has not been run through `bicep build` or
-  `az deployment ... --what-if`** — no Bicep/Azure CLI installed in the
-  environment that scaffolded this (see the note below on why). Hand-reviewed
-  for syntax, but validate for real before the first deploy.
-- The identity that runs the deployment needs `Key Vault Secrets Officer` (or
-  equivalent) on the target resource group *before* deploying, since the
-  vault uses RBAC authorization and the template writes two secrets into it.
-- Required deployment parameters: `githubWebhookSecret`, `asanaAccessToken`,
-  `asanaProjectGid` (see the `az deployment group create` command at the top
-  of `main.bicep`).
-- Functions runtime is pinned to `.NET 8` in the Bicep template
-  (`linuxFxVersion: 'DOTNET-ISOLATED|8.0'`) — that's deliberate, not an
-  oversight: the Azure Functions Worker SDK (v2.0.0, current when this was
-  built) rejects `net10.0` outright ("Invalid combination of TargetFramework
-  and AzureFunctionsVersion"), so the Functions project targets `net8.0`
-  while the test project stays on `net10.0` to match the rest of the
-  portfolio and this machine's installed runtimes. Revisit if a newer
-  Functions Worker SDK adds `net10.0` support.
+```
+az group create -n rg-github-asana-sync -l swedencentral
+az storage container create --name deployments --account-name <storage> --auth-mode login
+az storage blob upload --account-name <storage> --auth-mode login -c deployments -n app.zip -f app.zip --overwrite
+az deployment group create -g rg-github-asana-sync -f infra/main.bicep \
+  -p githubWebhookSecret=<secret> asanaAccessToken=<token> asanaProjectGid=<gid> \
+     packageUri=https://<storage>.blob.core.windows.net/deployments/app.zip
+```
+
+Build `app.zip` with `dotnet publish -c Release -o out` and zip the contents
+of `out`. The deploying user needs `Key Vault Secrets Officer` on the vault
+before the template writes its two secrets.
+
+Note that re-running the deployment overwrites both Key Vault secrets with
+whatever is passed in, so pass the real values rather than placeholders.
+
+Functions runtime is pinned to `.NET 8` in the Bicep template
+(`linuxFxVersion: 'DOTNET-ISOLATED|8.0'`) — deliberate, not an oversight: the
+Azure Functions Worker SDK rejects `net10.0` outright, so the Functions
+project targets `net8.0` while the test project stays on `net10.0`.
 
 ## Still open
 

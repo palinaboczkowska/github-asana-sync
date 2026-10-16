@@ -21,6 +21,9 @@ param asanaAccessToken string
 
 param asanaProjectGid string
 
+@description('Blob URL of the deployment package. The Function App reads it with its own managed identity, so no SAS token is needed.')
+param packageUri string = ''
+
 var storageAccountName = toLower('${namePrefix}st${uniqueString(resourceGroup().id)}')
 var functionAppName = '${namePrefix}-func-${uniqueString(resourceGroup().id)}'
 var serviceBusNamespaceName = '${namePrefix}-sb-${uniqueString(resourceGroup().id)}'
@@ -29,6 +32,18 @@ var appInsightsName = '${namePrefix}-ai-${uniqueString(resourceGroup().id)}'
 var logAnalyticsName = '${namePrefix}-log-${uniqueString(resourceGroup().id)}'
 var hostingPlanName = '${namePrefix}-plan-${uniqueString(resourceGroup().id)}'
 var queueName = 'github-issue-events'
+
+// The Linux Consumption plan cannot fetch the deployment package with the
+// app's own identity, so it needs a signed link. Azure mints it during the
+// deployment, which keeps the token out of the parameters and off any
+// command line.
+var packageSasToken = empty(packageUri) ? '' : storageAccount.listServiceSas('2023-05-01', {
+  canonicalizedResource: '/blob/${storageAccountName}/deployments/app.zip'
+  signedResource: 'b'
+  signedPermission: 'r'
+  signedProtocol: 'https'
+  signedExpiry: '2027-12-31T00:00:00Z'
+}).serviceSasToken
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
@@ -122,8 +137,9 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       linuxFxVersion: 'DOTNET-ISOLATED|8.0'
       appSettings: [
-        { name: 'AzureWebJobsStorage', value: storageAccount.properties.primaryEndpoints.blob }
+        { name: 'AzureWebJobsStorage', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}' }
         { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'dotnet-isolated' }
+        { name: 'WEBSITE_RUN_FROM_PACKAGE', value: empty(packageUri) ? '' : '${packageUri}?${packageSasToken}' }
         { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
         { name: 'ServiceBusConnection', value: listKeys('${serviceBusNamespace.id}/AuthorizationRules/RootManageSharedAccessKey', '2022-10-01-preview').primaryConnectionString }
@@ -137,6 +153,17 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'AsanaAccessToken', value: '@Microsoft.KeyVault(SecretUri=${asanaAccessTokenResource.properties.secretUri})' }
       ]
     }
+  }
+}
+
+resource packageReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionAppName, 'Storage Blob Data Reader')
+  scope: storageAccount
+  properties: {
+    // Storage Blob Data Reader
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1')
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
