@@ -14,6 +14,9 @@ var host = new HostBuilder()
         services.AddSingleton<IIdMappingStore, TableIdMappingStore>();
 
         services.AddHttpClient<IAsanaClient, AsanaClient>();
+
+        // Transient, like the typed AsanaClient it depends on.
+        services.AddTransient<IIssueSyncService, IssueSyncService>();
     })
     .Build();
 
