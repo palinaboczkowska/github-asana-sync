@@ -117,6 +117,15 @@ Asana → GitHub direction is future work (see "Still open" below).
 
 ## Deploying
 
+**Code: automatic.** Every push to `main` that passes the tests is deployed by
+the `deploy` job in `.github/workflows/ci.yml`: it publishes the app, uploads
+`app.zip` to the `deployments` container and restarts the Function App. It
+logs in to Azure with OIDC, so no Azure secret is stored in GitHub. Run
+`infra/setup-github-deploy.sh` once to create the trusted Entra app, its two
+narrowly scoped roles and the GitHub repository variables.
+
+**Infrastructure: by hand**, since the template takes the two app secrets:
+
 ```
 az group create -n rg-github-asana-sync -l swedencentral
 az storage container create --name deployments --account-name <storage> --auth-mode login

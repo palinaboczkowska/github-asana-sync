@@ -20,5 +20,39 @@ jobs:
       - run: dotnet test --no-build
         # No live Azure resources touched here: the webhook validator is
         # pure crypto and the GitHub->Asana sync logic runs against mocked
-        # IAsanaClient/IIdMappingStore. Nothing to deploy to check against
-        # yet — see infra/main.bicep for the environment this ships to.
+        # IAsanaClient/IIdMappingStore.
+
+  # Ships the app code to the existing Azure environment, only after the tests
+  # pass and only for main. Logs in with OIDC: Azure trusts a short-lived token
+  # GitHub issues for this repo's main branch, so no Azure secret is stored in
+  # GitHub. Infrastructure (infra/main.bicep) is still deployed by hand, since
+  # it takes the two app secrets as parameters.
+  deploy:
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet publish src/GithubAsanaSync.Functions -c Release -o out
+      - run: cd out && zip -qr ../app.zip .
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # The Function App runs from this blob (WEBSITE_RUN_FROM_PACKAGE), so
+      # replacing it and restarting is the whole code deployment.
+      - run: >
+          az storage blob upload --auth-mode login
+          --account-name ${{ vars.AZURE_STORAGE_ACCOUNT }}
+          -c deployments -n app.zip -f app.zip --overwrite
+      - run: az functionapp restart -g ${{ vars.AZURE_RESOURCE_GROUP }} -n ${{ vars.AZURE_FUNCTIONAPP }}
+      - run: >
+          az rest --method post --url
+          "https://management.azure.com/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ vars.AZURE_FUNCTIONAPP }}/syncfunctiontriggers?api-version=2022-03-01"
