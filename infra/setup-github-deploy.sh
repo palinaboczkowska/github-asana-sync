@@ -27,13 +27,22 @@ if [ -z "$APP_ID" ]; then
 fi
 SP_ID=$(az ad sp show --id "$APP_ID" --query id -o tsv 2>/dev/null || az ad sp create --id "$APP_ID" --query id -o tsv)
 
+# GitHub presents its OIDC subject with the owner's and repo's immutable IDs
+# (repo:owner@123/name@456:ref:...), so a renamed or re-registered account
+# can never inherit the trust. Build the same string here.
+OWNER_ID=$(gh api "repos/$REPO" --jq .owner.id)
+REPO_ID=$(gh api "repos/$REPO" --jq .id)
+SUBJECT="repo:${REPO%%/*}@$OWNER_ID/${REPO##*/}@$REPO_ID:ref:refs/heads/main"
+CREDENTIAL="{
+  \"name\": \"github-main\",
+  \"issuer\": \"https://token.actions.githubusercontent.com\",
+  \"subject\": \"$SUBJECT\",
+  \"audiences\": [\"api://AzureADTokenExchange\"]
+}"
 if [ -z "$(az ad app federated-credential list --id "$APP_ID" --query "[?name=='github-main'].name" -o tsv)" ]; then
-  az ad app federated-credential create --id "$APP_ID" --parameters "{
-    \"name\": \"github-main\",
-    \"issuer\": \"https://token.actions.githubusercontent.com\",
-    \"subject\": \"repo:$REPO:ref:refs/heads/main\",
-    \"audiences\": [\"api://AzureADTokenExchange\"]
-  }" >/dev/null
+  az ad app federated-credential create --id "$APP_ID" --parameters "$CREDENTIAL" >/dev/null
+else
+  az ad app federated-credential update --id "$APP_ID" --federated-credential-id github-main --parameters "$CREDENTIAL" >/dev/null
 fi
 
 # Least privilege: write blobs in the one storage account, restart the one app.
