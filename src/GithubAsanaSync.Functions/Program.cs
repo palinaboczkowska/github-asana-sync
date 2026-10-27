@@ -12,11 +12,15 @@ var host = new HostBuilder()
 
         services.AddSingleton<IGitHubWebhookValidator, GitHubWebhookValidator>();
         services.AddSingleton<IIdMappingStore, TableIdMappingStore>();
+        services.AddSingleton<IAsanaWebhookValidator, AsanaWebhookValidator>();
+        services.AddSingleton<IWebhookSecretStore, TableWebhookSecretStore>();
 
         services.AddHttpClient<IAsanaClient, AsanaClient>();
+        services.AddHttpClient<IGitHubClient, GitHubClient>();
 
-        // Transient, like the typed AsanaClient it depends on.
+        // Transient, like the typed clients they depend on.
         services.AddTransient<IIssueSyncService, IssueSyncService>();
+        services.AddTransient<ITaskSyncService, TaskSyncService>();
     })
     .Build();
 

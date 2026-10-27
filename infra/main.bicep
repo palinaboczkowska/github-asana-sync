@@ -1,11 +1,12 @@
 // Infra for github-asana-sync: a Consumption-plan Function App wired to a
 // Service Bus queue, a storage account (Functions runtime storage + the
-// IssueMappings table), Key Vault for the two secrets the app needs, and
+// IssueMappings table), Key Vault for the three secrets the app needs, and
 // Application Insights for tracing.
 //
 // Deploy with:
 //   az deployment group create -g <resource-group> -f infra/main.bicep \
-//     -p githubWebhookSecret=<secret> asanaAccessToken=<token> asanaProjectGid=<gid>
+//     -p githubWebhookSecret=<secret> asanaAccessToken=<token> githubToken=<token> asanaProjectGid=<gid>
+// To add or rotate only the GitHub token, use infra/set-github-token.sh.
 
 @description('Short, globally-unique-ish prefix used to derive resource names.')
 param namePrefix string = 'ghasync'
@@ -13,11 +14,17 @@ param namePrefix string = 'ghasync'
 @description('Azure region for every resource.')
 param location string = resourceGroup().location
 
+// The secrets default to empty, and an empty value leaves the vault's
+// current secret untouched, so a redeploy only needs the one being changed.
 @secure()
-param githubWebhookSecret string
+param githubWebhookSecret string = ''
 
 @secure()
-param asanaAccessToken string
+param asanaAccessToken string = ''
+
+@description('Fine-grained GitHub token with Issues read/write on the synced repo. Used by the Asana -> GitHub direction.')
+@secure()
+param githubToken string = ''
 
 param asanaProjectGid string
 
@@ -118,6 +125,12 @@ resource asanaAccessTokenResource 'Microsoft.KeyVault/vaults/secrets@2023-07-01'
   properties: { value: asanaAccessToken }
 }
 
+resource githubTokenResource 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(githubToken)) {
+  parent: keyVault
+  name: 'GitHubToken'
+  properties: { value: githubToken }
+}
+
 // Y1 = Consumption plan: pay only for executions, scales to zero.
 resource hostingPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: hostingPlanName
@@ -154,6 +167,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         // secret in the vault takes effect without a redeployment.
         { name: 'GitHubWebhookSecret', value: '@Microsoft.KeyVault(SecretUri=${keyVault.properties.vaultUri}secrets/GitHubWebhookSecret)' }
         { name: 'AsanaAccessToken', value: '@Microsoft.KeyVault(SecretUri=${keyVault.properties.vaultUri}secrets/AsanaAccessToken)' }
+        { name: 'GitHubToken', value: '@Microsoft.KeyVault(SecretUri=${keyVault.properties.vaultUri}secrets/GitHubToken)' }
       ]
     }
   }

@@ -41,11 +41,11 @@ public sealed class IssueSyncService(
                 break;
 
             case GitHubIssueAction.Closed:
-                await asanaClient.UpdateTaskAsync(taskGid, completed: true, cancellationToken);
+                await SetCompletedIfDifferentAsync(taskGid, completed: true, cancellationToken);
                 break;
 
             case GitHubIssueAction.Reopened:
-                await asanaClient.UpdateTaskAsync(taskGid, completed: false, cancellationToken);
+                await SetCompletedIfDifferentAsync(taskGid, completed: false, cancellationToken);
                 break;
 
             case GitHubIssueAction.Edited:
@@ -56,5 +56,19 @@ public sealed class IssueSyncService(
                 // The CreateTaskAsync call above already covers this case.
                 break;
         }
+    }
+
+    // Loop guard for the two-way sync: when the issue was closed or reopened
+    // because of a change in Asana, the task is already in that state, so
+    // writing it again would only trigger another Asana event.
+    private async Task SetCompletedIfDifferentAsync(string taskGid, bool completed, CancellationToken cancellationToken)
+    {
+        if (await asanaClient.IsTaskCompletedAsync(taskGid, cancellationToken) == completed)
+        {
+            logger.LogInformation("Asana task {TaskGid} is already {State}; nothing to do.", taskGid, completed ? "completed" : "open");
+            return;
+        }
+
+        await asanaClient.UpdateTaskAsync(taskGid, completed, cancellationToken);
     }
 }

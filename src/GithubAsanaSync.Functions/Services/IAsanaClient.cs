@@ -7,5 +7,7 @@ public interface IAsanaClient
 
     Task UpdateTaskAsync(string taskGid, bool completed, CancellationToken cancellationToken);
 
+    Task<bool> IsTaskCompletedAsync(string taskGid, CancellationToken cancellationToken);
+
     Task AddCommentAsync(string taskGid, string text, CancellationToken cancellationToken);
 }
