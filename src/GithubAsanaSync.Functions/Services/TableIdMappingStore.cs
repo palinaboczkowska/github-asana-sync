@@ -47,5 +47,37 @@ public sealed class TableIdMappingStore : IIdMappingStore
         };
 
         await _tableClient.UpsertEntityAsync(entity, TableUpdateMode.Replace, cancellationToken);
+
+        // Reverse row for the Asana -> GitHub direction. Its partition can
+        // never collide with a repository partition, since BuildPartitionKey
+        // always turns the '/' in "owner/name" into '_'.
+        var reverse = new TableEntity(ReversePartitionKey, asanaTaskGid)
+        {
+            ["Repository"] = repository,
+            ["SourceKind"] = kind.ToString(),
+            ["Number"] = number,
+        };
+
+        await _tableClient.UpsertEntityAsync(reverse, TableUpdateMode.Replace, cancellationToken);
     }
+
+    public async Task<GitHubItemRef?> FindGitHubItemAsync(string asanaTaskGid, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await _tableClient.GetEntityAsync<TableEntity>(ReversePartitionKey, asanaTaskGid, cancellationToken: cancellationToken);
+            var row = response.Value;
+
+            return new GitHubItemRef(
+                row.GetString("Repository"),
+                Enum.Parse<GitHubSourceKind>(row.GetString("SourceKind")),
+                row.GetInt32("Number") ?? throw new InvalidOperationException($"Mapping for task {asanaTaskGid} has no number."));
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
+    }
+
+    private const string ReversePartitionKey = "AsanaTask";
 }

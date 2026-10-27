@@ -137,6 +137,42 @@ public class IssueSyncServiceTests
         _asanaClient.Verify(c => c.UpdateTaskAsync("task-556", true, It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task Run_IssueClosedButTaskAlreadyCompleted_DoesNotWriteAgain()
+    {
+        // Loop guard: the issue was closed because the task was completed in
+        // Asana, so completing it again would only send Asana another event.
+        _idMappingStore
+            .Setup(s => s.FindAsanaTaskGidAsync("acme/widgets", GitHubSourceKind.Issue, 42, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("task-123");
+        _asanaClient
+            .Setup(c => c.IsTaskCompletedAsync("task-123", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var message = new SyncMessage("acme/widgets", GitHubSourceKind.Issue, 42, "Widget is broken", "Details here", GitHubIssueAction.Closed, "https://github.com/acme/widgets/issues/42");
+
+        await Run(message);
+
+        _asanaClient.Verify(c => c.UpdateTaskAsync(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Run_IssueReopened_MarksCompletedTaskIncomplete()
+    {
+        _idMappingStore
+            .Setup(s => s.FindAsanaTaskGidAsync("acme/widgets", GitHubSourceKind.Issue, 42, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("task-123");
+        _asanaClient
+            .Setup(c => c.IsTaskCompletedAsync("task-123", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var message = new SyncMessage("acme/widgets", GitHubSourceKind.Issue, 42, "Widget is broken", "Details here", GitHubIssueAction.Reopened, "https://github.com/acme/widgets/issues/42");
+
+        await Run(message);
+
+        _asanaClient.Verify(c => c.UpdateTaskAsync("task-123", false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private Task Run(SyncMessage message) =>
         _sut.HandleAsync(message, CancellationToken.None);
 }

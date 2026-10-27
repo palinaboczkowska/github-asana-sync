@@ -1,9 +1,10 @@
 # github-asana-sync
 
-**Status: deployed to Azure and verified end to end (2026-10-16).**
-GitHub → Asana one-way sync, covering both issues and pull requests: webhook
-receiver, queue processor, Table Storage id-mapping, Asana client and the
-Bicep template. `dotnet test` passes (19/19) locally and in GitHub Actions.
+**Status: deployed to Azure and verified end to end (2026-10-16). Two-way
+since 2026-10-27:** completing or reopening a task in Asana closes or reopens
+the GitHub issue it came from. GitHub → Asana covers issues and pull
+requests; Asana → GitHub covers issues only, since a pull request cannot be
+merged from Asana. `dotnet test` passes (37/37) locally and in GitHub Actions.
 The infrastructure now runs in a real subscription: a signed webhook was
 accepted and queued, an unsigned and a wrongly signed one were rejected and
 logged, and the queue processor picked the message up and retried it the way
@@ -55,13 +56,19 @@ flowchart LR
     SB --> F3[Azure Function:\nProcessSyncMessage]
     F3 -->|create/update task| AS[Asana REST API]
     F3 --> TBL[(Table Storage:\nIssueMappings)]
+    AS -.task completed/reopened.-> F2[Azure Function:\nReceiveAsanaWebhook]
+    F2 --> SB
+    F3 -->|close/reopen issue| GHA[GitHub REST API]
     F3 -.trace/errors.-> AI[Application Insights]
     KV[(Key Vault:\nGitHub + Asana secrets)] --> F1
     KV --> F3
 ```
 
-v1 is one-way (GitHub → Asana only) — no `receive-asana` Function yet. The
-Asana → GitHub direction is future work (see "Still open" below).
+The Asana direction reuses the same queue and worker. Its messages carry only
+the task GID, because Asana's events do not say what the new value is; the
+worker reads the task and the issue and only writes when they disagree. That
+check is also the loop guard: closing the issue makes GitHub send a webhook
+back, which finds the task already completed and stops there.
 
 1. An HTTP-triggered Function receives GitHub's webhook and does the minimum
    work to validate + drop a message on a **Service Bus** queue. This
@@ -101,6 +108,14 @@ Asana → GitHub direction is future work (see "Still open" below).
     and PRs share GitHub's numbering sequence, so the kind is part of the
     key to avoid issue #42 and PR #42 colliding).
   - `AsanaClient` — thin wrapper over Asana's REST API v1.0.
+  - `ReceiveAsanaWebhook` — Asana's side. Answers the one-time handshake by
+    echoing `X-Hook-Secret` and storing it (Table Storage, since the app's
+    Key Vault role is read-only), then checks `X-Hook-Signature` on every
+    delivery and queues one message per changed task. Needs the Function
+    key, so only someone holding it can perform a handshake.
+  - `TaskSyncService` + `GitHubClient` — Asana → GitHub: finds the issue
+    through a reverse mapping row, closes or reopens it with a comment saying
+    why. Ignores tasks it did not create and tasks that track a pull request.
 - `tests/GithubAsanaSync.Tests` — xUnit + Moq, 14 tests. Signature validation
   (valid/tampered/wrong-secret/malformed-header) and the sync branching
   logic (new issue, existing issue, self-healing, edit, PR merged, PR closed
@@ -124,7 +139,11 @@ logs in to Azure with OIDC, so no Azure secret is stored in GitHub. Run
 `infra/setup-github-deploy.sh` once to create the trusted Entra app, its two
 narrowly scoped roles and the GitHub repository variables.
 
-**Infrastructure: by hand**, since the template takes the two app secrets:
+**Two-way setup, once:** create a fine-grained GitHub token (this repo only,
+Issues read/write), copy it and run `infra/set-github-token.sh`, then run
+`infra/register-asana-webhook.sh`.
+
+**Infrastructure: by hand**, since the template takes the app secrets:
 
 ```
 az group create -n rg-github-asana-sync -l swedencentral
@@ -149,7 +168,9 @@ project targets `net8.0` while the test project stays on `net10.0`.
 
 ## Still open
 
-- [ ] Asana → GitHub direction (currently one-way, GitHub → Asana only).
+- [x] Asana → GitHub direction for issues (2026-10-27). Tasks created before
+      that date have no reverse mapping and stay one-way.
+- [ ] Field changes beyond open/closed (title, assignee) in either direction.
 - [ ] Actually deploy `main.bicep` and register the GitHub + Asana webhooks
       against the live endpoint.
 

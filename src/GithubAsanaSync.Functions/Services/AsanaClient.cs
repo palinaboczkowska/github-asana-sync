@@ -44,6 +44,14 @@ public sealed class AsanaClient : IAsanaClient
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<bool> IsTaskCompletedAsync(string taskGid, CancellationToken cancellationToken)
+    {
+        var body = await _httpClient.GetFromJsonAsync<AsanaEnvelope<TaskCompletedData>>($"tasks/{taskGid}?opt_fields=completed", cancellationToken)
+            ?? throw new InvalidOperationException("Asana returned an empty response for the task.");
+
+        return body.Data.Completed;
+    }
+
     public async Task AddCommentAsync(string taskGid, string text, CancellationToken cancellationToken)
     {
         var request = new AsanaEnvelope<AddCommentData>(new AddCommentData(text));
@@ -64,4 +72,6 @@ public sealed class AsanaClient : IAsanaClient
     private sealed record AddCommentData([property: JsonPropertyName("text")] string Text);
 
     private sealed record TaskGidData([property: JsonPropertyName("gid")] string Gid);
+
+    private sealed record TaskCompletedData([property: JsonPropertyName("completed")] bool Completed);
 }
